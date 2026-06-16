@@ -6,34 +6,26 @@ from openai import OpenAI
 INPUT_FILE = "paper1.md"
 OUTPUT_FILE = "paper1_parameters.json"
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+client = OpenAI(
+    api_key=os.environ.get("DEEPSEEK_API_KEY"),
+    base_url="https://api.deepseek.com",
+)
 
 text = Path(INPUT_FILE).read_text(encoding="utf-8", errors="ignore")
 
-# Keep only likely useful parts so we do not send the whole paper
-keywords = ["V0", "K0", "theta", "gamma", "q0", "G0", "eta", "parameter", "species", "formula"]
-chunks = text.split("\n\n")
-useful_text = "\n\n".join(
-    chunk for chunk in chunks
-    if any(word.lower() in chunk.lower() for word in keywords)
-)
+prompt = """
+You are extracting a table from a scientific paper.
 
-prompt = f"""
-Extract the 9 thermodynamic parameters from this Markdown.
+Extract EVERY row/species from the thermodynamic parameter table.
 
-Parameters:
-V0, K0, K0_prime, theta0, gamma0, q0, G0, G0_prime, etaS0
-
-Return ONLY valid JSON.
-
-Use this format:
-{{
+Return ONLY valid JSON in this exact structure:
+{
   "species": [
-    {{
+    {
       "phase": "",
       "species_name": "",
       "formula": "",
-      "parameters": {{
+      "parameters": {
         "V0": null,
         "K0": null,
         "K0_prime": null,
@@ -43,24 +35,39 @@ Use this format:
         "G0": null,
         "G0_prime": null,
         "etaS0": null
-      }}
-    }}
+      }
+    }
   ]
-}}
+}
 
-Markdown:
-{useful_text}
+Rules:
+- Do not stop after one row.
+- Extract all rows from the table.
+- If a value has uncertainty like 128 (2), keep it as the string "128 (2)".
+- If a value is missing, use null.
+- Do not include explanations.
 """
 
+full_prompt = prompt + "\n\nPaper text:\n" + text
+
 response = client.chat.completions.create(
-    model="gpt-4.1",
-    messages=[{"role": "user", "content": prompt}],
-    temperature=0
+    model="deepseek-chat",
+    messages=[{"role": "user", "content": full_prompt}],
+    temperature=0,
 )
 
-json_text = response.choices[0].message.content
+output_text = response.choices[0].message.content.strip()
 
-# Save raw JSON response
-Path(OUTPUT_FILE).write_text(json_text, encoding="utf-8")
+if output_text.startswith("```"):
+    output_text = output_text.replace("```json", "").replace("```", "").strip()
 
-print(f"Saved output to {OUTPUT_FILE}")
+print(output_text)
+
+data = json.loads(output_text)
+
+Path(OUTPUT_FILE).write_text(
+    json.dumps(data, indent=2),
+    encoding="utf-8",
+)
+
+print(f"Saved extracted parameters to {OUTPUT_FILE}")
