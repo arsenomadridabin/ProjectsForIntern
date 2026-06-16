@@ -1,1 +1,1 @@
-# ProjectForIntern
+# Github lessons for interns
